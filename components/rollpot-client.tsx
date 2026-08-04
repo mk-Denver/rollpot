@@ -107,6 +107,8 @@ export function RollpotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
 
   const canCallService = Boolean(endpoint && playerIdentity && playerProfile?.lightning_address && appSigner);
   const profileConfigured = Boolean(playerIdentity && playerProfile?.name.trim() && playerProfile.lightning_address.trim());
+  const needsName = Boolean(playerIdentity && !playerProfile?.name.trim());
+  const needsLightningAddress = Boolean(playerIdentity && !playerProfile?.lightning_address.trim());
   const playerJoined = Boolean(escrow?.counterparty_pubkey || counterpartyPlayer);
   const creatorPaid = Boolean(creatorStatus?.funded || creatorStatus?.my_funded);
   const counterpartyPaid = Boolean(counterpartyStatus?.funded || counterpartyStatus?.my_funded);
@@ -469,11 +471,15 @@ export function RollpotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
                     )}
                     {playerIdentity ? (
                       <>
+                        {needsLightningAddress ? <Alert severity="warning">Add a Lightning address before creating or joining a game.</Alert> : null}
                         <TextField
                           label="Name"
                           value={playerProfile?.name || ""}
                           onChange={(event) => updatePlayerProfile({ name: event.target.value })}
                           size="small"
+                          required
+                          error={needsName}
+                          helperText={needsName ? "Required" : " "}
                         />
                         <TextField label="Nostr npub" value={playerProfile?.npub || ""} size="small" slotProps={{ input: { readOnly: true } }} />
                         <TextField
@@ -481,6 +487,9 @@ export function RollpotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
                           value={playerProfile?.lightning_address || ""}
                           onChange={(event) => updatePlayerProfile({ lightning_address: event.target.value })}
                           size="small"
+                          required
+                          error={needsLightningAddress}
+                          helperText={needsLightningAddress ? "Required for refunds and payouts" : " "}
                         />
                       </>
                     ) : null}
@@ -544,7 +553,21 @@ export function RollpotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
 
             <Stack spacing={2.5} sx={{ flex: 1, minWidth: 0, width: "100%" }}>
               {!profileConfigured ? (
-                <Alert severity="info">Finish your player profile to create or join Rollpot games.</Alert>
+                <Card variant="outlined">
+                  <CardContent>
+                    <Stack spacing={2}>
+                      <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                        Complete profile
+                      </Typography>
+                      <Typography color="text.secondary">Rollpot needs a player name, Nostr pubkey, and Lightning address before games are available.</Typography>
+                      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
+                        <Chip label={playerIdentity ? "Nostr ready" : "Nostr required"} color={playerIdentity ? "success" : "default"} />
+                        <Chip label={needsName ? "Name required" : "Name ready"} color={needsName ? "warning" : "success"} />
+                        <Chip label={needsLightningAddress ? "Lightning required" : "Lightning ready"} color={needsLightningAddress ? "warning" : "success"} />
+                      </Stack>
+                    </Stack>
+                  </CardContent>
+                </Card>
               ) : (
                 <Card variant="outlined">
                   <CardContent>
