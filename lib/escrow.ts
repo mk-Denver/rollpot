@@ -129,7 +129,7 @@ export type TrackedDiceGame = {
 
 export type GameInvite = {
   version: 1;
-  game: "roll-pot";
+  game: "rollpot";
   escrow_id: string;
   invitation_token: string;
   amount_sats: number;

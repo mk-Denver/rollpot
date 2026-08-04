@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     const elapsedMs = Date.now() - startedAt;
 
     if (!upstream.ok) {
-      console.warn("[roll-pot] escrow upstream error", {
+      console.warn("[rollpot] escrow upstream error", {
         operation,
         status: upstream.status,
         elapsedMs,
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    console.error("[roll-pot] escrow proxy error", error);
+    console.error("[rollpot] escrow proxy error", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Escrow request failed." }, { status: 400 });
   }
 }

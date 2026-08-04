@@ -1,4 +1,4 @@
-# Roll Pot
+# Rollpot
 
 Standalone Next.js client that validates Pontmore escrow service invocation with a two-player dice wager.
 
@@ -14,6 +14,13 @@ npm run dev
 ```
 
 Open `http://localhost:3002`.
+
+## Docker
+
+```bash
+docker build -t pontmore/rollpot .
+docker run --rm -p 3002:3002 pontmore/rollpot
+```
 
 ## Flow
 

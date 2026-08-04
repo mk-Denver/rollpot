@@ -4,7 +4,7 @@ import "./globals.css";
 import { AppThemeProvider } from "./theme-provider";
 
 export const metadata: Metadata = {
-  title: "Roll Pot",
+  title: "Rollpot",
   description: "A two-player dice wager client backed by a Pontmore standalone escrow.",
 };
 

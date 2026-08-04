@@ -50,10 +50,10 @@ import {
   getServiceEndpoint,
 } from "../lib/escrow";
 
-const APP_SECRET_STORAGE = "pontmore-dice-app-secret";
+const APP_SECRET_STORAGE = "pontmore-rollpot-app-secret";
 const GAMES_STORAGE = "pontmore-dice-games";
 
-export function RollPotClient({ descriptor }: { descriptor: EscrowDescriptor }) {
+export function RollpotClient({ descriptor }: { descriptor: EscrowDescriptor }) {
   const endpoint = getServiceEndpoint(descriptor);
   const initialFundingModel = descriptor.service?.funding_model?.includes("two_party")
     ? "two_party"
@@ -90,7 +90,7 @@ export function RollPotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
       .catch((nextError) => {
         setError(nextError instanceof Error ? nextError.message : String(nextError));
       });
-    setAppSigner(loadOrCreateIdentity("Roll Pot application", APP_SECRET_STORAGE));
+    setAppSigner(loadOrCreateIdentity("Rollpot application", APP_SECRET_STORAGE));
     const savedGames = loadTrackedGames();
     setTrackedGames(savedGames);
 
@@ -122,7 +122,7 @@ export function RollPotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
 
     return encodeInvite({
       version: 1,
-      game: "roll-pot",
+      game: "rollpot",
       escrow_id: escrow.escrow_id,
       invitation_token: escrow.invitation_token,
       amount_sats: escrow.amount_sats,
@@ -139,7 +139,7 @@ export function RollPotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
     await runOperation(async () => {
       const created = await callEscrow<CreateEscrowResponse>(playerIdentity, "create", {
         amount_sats: Number(amountSats),
-        description: "Roll Pot wager",
+        description: "Rollpot wager",
         refund_ln_address: playerProfile.lightning_address,
         funding_model: fundingModel,
         idempotency_key: crypto.randomUUID(),
@@ -194,9 +194,9 @@ export function RollPotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
     await runOperation(async () => {
       const joined = await callEscrow<CreateEscrowResponse>(playerIdentity, "create", {
         amount_sats: invite.amount_sats,
-        description: "Roll Pot wager",
+        description: "Rollpot wager",
         refund_ln_address: playerProfile.lightning_address,
-        idempotency_key: `roll-pot-join:${invite.escrow_id}:${playerIdentity.pubkey}`,
+        idempotency_key: `rollpot-join:${invite.escrow_id}:${playerIdentity.pubkey}`,
         invitation_token: invite.invitation_token,
       });
       const game = baseTrackedGame({
@@ -420,9 +420,9 @@ export function RollPotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
           <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: { xs: 2, md: 3 } }}>
             <Stack direction={{ xs: "column", md: "row" }} spacing={2.5} sx={{ alignItems: { md: "center" }, justifyContent: "space-between" }}>
               <Box>
-                <Chip icon={<CasinoIcon />} label="Roll Pot" color="primary" sx={{ mb: 1.5 }} />
+                <Chip icon={<CasinoIcon />} label="Rollpot" color="primary" sx={{ mb: 1.5 }} />
                 <Typography component="h1" variant="h2" sx={{ fontWeight: 900, letterSpacing: 0 }}>
-                  Roll Pot
+                  Rollpot
                 </Typography>
                 <Typography color="text.secondary">Invite a Nostr player, fund the pot, roll once.</Typography>
               </Box>
@@ -544,7 +544,7 @@ export function RollPotClient({ descriptor }: { descriptor: EscrowDescriptor }) 
 
             <Stack spacing={2.5} sx={{ flex: 1, minWidth: 0, width: "100%" }}>
               {!profileConfigured ? (
-                <Alert severity="info">Finish your player profile to create or join Roll Pot games.</Alert>
+                <Alert severity="info">Finish your player profile to create or join Rollpot games.</Alert>
               ) : (
                 <Card variant="outlined">
                   <CardContent>
@@ -731,8 +731,8 @@ function decodeInvite(value: string): GameInvite {
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
   const invite = JSON.parse(atob(padded)) as GameInvite;
 
-  if (invite.version !== 1 || invite.game !== "roll-pot" || !invite.invitation_token || !invite.creator_player?.lightning_address) {
-    throw new Error("Invite code is not a valid Roll Pot invite.");
+  if (invite.version !== 1 || invite.game !== "rollpot" || !invite.invitation_token || !invite.creator_player?.lightning_address) {
+    throw new Error("Invite code is not a valid Rollpot invite.");
   }
 
   return invite;

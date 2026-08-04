@@ -1,6 +1,6 @@
-# Roll Pot Escrow Backend Requirements
+# Rollpot Escrow Backend Requirements
 
-Roll Pot is a two-player wager client using the Pontmore standalone escrow HTTP service as its backend. The client relies on the descriptor-advertised `pontmore_escrow_http_v1` service operations.
+Rollpot is a two-player wager client using the Pontmore standalone escrow HTTP service as its backend. The client relies on the descriptor-advertised `pontmore_escrow_http_v1` service operations.
 
 This note summarizes the backend behavior needed to support the game cleanly, especially for `two_party` funding.
 
@@ -23,7 +23,7 @@ For `two_party`, funding should not begin until both participants are registered
 
 `POST /create` with an `invitation_token` should be atomic.
 
-Observed behavior from Roll Pot testing:
+Observed behavior from Rollpot testing:
 
 ```text
 join create + invitation_token -> 500 internal server error
@@ -47,10 +47,10 @@ Example join payload:
 ```json
 {
   "amount_sats": 100,
-  "description": "Roll Pot wager",
+  "description": "Rollpot wager",
   "refund_ln_address": "player2@wallet.com",
   "invitation_token": "service-issued-token",
-  "idempotency_key": "roll-pot-join:<escrow_id>:<counterparty_pubkey>"
+  "idempotency_key": "rollpot-join:<escrow_id>:<counterparty_pubkey>"
 }
 ```
 
@@ -114,7 +114,7 @@ The second error is already being returned in some cases and is useful.
 
 ### 6. Avoid Generic 500s For Recoverable Escrow State
 
-Roll Pot can recover from clear client-facing errors, but not from generic:
+Rollpot can recover from clear client-facing errors, but not from generic:
 
 ```json
 { "error": "internal server error" }
@@ -131,7 +131,7 @@ Prefer specific errors such as:
 
 ## Observed Test Evidence
 
-During testing through the ngrok-proxied Roll Pot client, the following patterns were observed.
+During testing through the ngrok-proxied Rollpot client, the following patterns were observed.
 
 ### Partial Join Failure
 

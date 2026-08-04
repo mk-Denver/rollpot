@@ -6,8 +6,8 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { finalizeEvent, generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
 import type { DiceGameResult, EscrowIdentity, NostrEvent, PlayerProfile } from "./escrow";
 
-const LOCAL_PLAYER_SECRET_STORAGE = "roll-pot-local-player-secret";
-const PLAYER_PROFILE_STORAGE = "roll-pot-player-profile";
+const LOCAL_PLAYER_SECRET_STORAGE = "rollpot-local-player-secret";
+const PLAYER_PROFILE_STORAGE = "rollpot-player-profile";
 
 type NostrExtension = {
   getPublicKey?: () => Promise<string>;
@@ -124,7 +124,7 @@ export function buildApplicationReleaseDecision({
   timestamp: number;
 }) {
   if (!appSigner.secretKey) {
-    throw new Error("Roll Pot application signer is unavailable.");
+    throw new Error("Rollpot application signer is unavailable.");
   }
 
   const resultHash = hashJson(result);
