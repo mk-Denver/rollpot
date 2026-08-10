@@ -1,29 +1,16 @@
-import { Alert, Box, Button, Container, Link, Stack, Typography } from "@mui/material";
 import { RollpotClient } from "../components/rollpot-client";
-import { DESCRIPTOR_URL, fetchDescriptor } from "../lib/escrow";
+import { DESCRIPTOR_URL } from "../lib/escrow";
+import { discoverEscrowService } from "../lib/escrow-server";
+import type { EscrowService } from "../lib/escrow";
 
 export default async function Home() {
-  try {
-    const descriptor = await fetchDescriptor();
+  let initialService: EscrowService | null = null;
 
-    return <RollpotClient descriptor={descriptor} />;
-  } catch (error) {
-    return (
-      <Box component="main" sx={{ minHeight: "100vh", py: 8 }}>
-        <Container maxWidth="md">
-          <Stack spacing={3}>
-            <Typography component="h1" variant="h3" sx={{ fontWeight: 900 }}>
-              Rollpot
-            </Typography>
-            <Alert severity="error">
-              {error instanceof Error ? error.message : "Unable to load escrow descriptor."}
-            </Alert>
-            <Button component={Link} href={DESCRIPTOR_URL} variant="outlined">
-              Open descriptor
-            </Button>
-          </Stack>
-        </Container>
-      </Box>
-    );
+  try {
+    initialService = await discoverEscrowService(DESCRIPTOR_URL);
+  } catch {
+    // Page renders without a preselected escrow when the default is unavailable.
   }
+
+  return <RollpotClient initialService={initialService} />;
 }
