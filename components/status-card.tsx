@@ -3,6 +3,8 @@
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { Alert, Box, Button, Chip, Stack, Tooltip, Typography } from "@mui/material";
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import type { FundStatusResponse, FundingInstructionsResponse } from "../lib/escrow";
 
 export function FundingStatusCard({
@@ -22,6 +24,29 @@ export function FundingStatusCard({
   onInstructions: () => void;
   onStatus: () => void;
 }) {
+  const [qrDataUrl, setQrDataUrl] = useState("");
+
+  useEffect(() => {
+    if (!instructions?.payment_request) {
+      setQrDataUrl("");
+      return;
+    }
+
+    let cancelled = false;
+
+    QRCode.toDataURL(instructions.payment_request, {
+      width: 220,
+      margin: 1,
+      color: { dark: "#17251b", light: "#f8f2e8" },
+    }).then((url) => {
+      if (!cancelled) setQrDataUrl(url);
+    }).catch(() => {
+      // Silently skip QR generation on failure.
+    });
+
+    return () => { cancelled = true; };
+  }, [instructions?.payment_request]);
+
   return (
     <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 2 }}>
       <Stack spacing={2}>
@@ -39,7 +64,29 @@ export function FundingStatusCard({
         {instructions ? (
           <Stack spacing={1.2}>
             <KeyValue label="Amount" value={`${instructions.amount_sats} sats`} />
-            <KeyValue label="Payment request" value={instructions.payment_request} copy />
+            <KeyValue label="Invoice" value={instructions.payment_request} copy />
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={() => navigator.clipboard.writeText(instructions.payment_request)}
+              sx={{ alignSelf: "flex-start", mt: 0.5 }}
+            >
+              Copy LN invoice
+            </Button>
+            {qrDataUrl ? (
+              <Box sx={{ textAlign: "center", pt: 0.5 }}>
+                <Box
+                  component="img"
+                  src={qrDataUrl}
+                  alt="Lightning invoice QR code"
+                  sx={{ width: 200, height: 200, borderRadius: 1 }}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                  Scan with your Lightning wallet
+                </Typography>
+              </Box>
+            ) : null}
           </Stack>
         ) : (
           <Alert severity="info">{waitingForPlayers ? "Invite Player 2 before requesting payment." : "Get your payment request after the game is ready."}</Alert>
