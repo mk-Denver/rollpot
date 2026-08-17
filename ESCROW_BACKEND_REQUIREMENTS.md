@@ -1,156 +1,64 @@
 # Rollpot Escrow Backend Requirements
 
-Rollpot is a two-player wager client using the Pontmore standalone escrow HTTP service as its backend. The client relies on the descriptor-advertised `pontmore_escrow_http_v1` service operations.
+Rollpot is a two-player dice wager client using the Pontmore standalone escrow HTTP service as its backend. The client relies on the PIP-01 simplified descriptor and the `pontmore_escrow_http_v1` OpenAPI schema.
 
-This note summarizes the backend behavior needed to support the game cleanly, especially for `two_party` funding.
+The game uses `2_of_2` funding: both participants get separate Lightning invoices and must fund before rolling. The winner is determined by higher die roll and receives the total pot via `application_signed_result` release.
 
-## Expected Two-Party Flow
+## Two-Party Flow
 
 ```text
-creator create two_party escrow -> CREATED
-counterparty joins via invitation_token -> PENDING_FUNDING
+creator create 2_of_2 escrow -> CREATED
+counterparty joins via enrollment_token + refund_ln_address -> CREATED (both funder rows seeded)
 creator requests funding_instructions -> creator invoice
 counterparty requests funding_instructions -> counterparty invoice
-both invoices paid -> FUNDED
-application_signed_result release -> SETTLED
+both invoices paid -> ACTIVE
+application_signed_result release -> RELEASED (winner gets 2 × amount_sats)
 ```
 
-For `two_party`, funding should not begin until both participants are registered.
+Funding requires both participants to be registered before either can request an invoice. Each participant receives their own BOLT11 invoice.
 
-## Required Backend Changes
+## Enrollment and Funding
 
-### 1. Make Counterparty Join Atomic
+### Counterparty join
 
-`POST /create` with an `invitation_token` should be atomic.
-
-Observed behavior from Rollpot testing:
-
-```text
-join create + invitation_token -> 500 internal server error
-retry same invite -> 409 not in state CREATED
-```
-
-This suggests the backend may mutate escrow state during the first join attempt, then return an error before the client receives the joined escrow.
-
-Required behavior:
-
-- If join succeeds, persist the join and return `200 CreateResponse`.
-- If join fails, leave the escrow unchanged and still joinable.
-- Do not partially join a participant and return `500`.
-
-### 2. Make Invited Join Idempotent
-
-The OpenAPI schema says `idempotency_key` deduplicates repeated `create` calls. The same behavior should apply to invited joins.
-
-Example join payload:
+`POST /create` with `enrollment_token` and `refund_ln_address`:
 
 ```json
 {
-  "amount_sats": 100,
-  "description": "Rollpot wager",
-  "refund_ln_address": "player2@wallet.com",
-  "invitation_token": "service-issued-token",
-  "idempotency_key": "rollpot-join:<escrow_id>:<counterparty_pubkey>"
+  "enrollment_token": "service-issued-token",
+  "refund_ln_address": "player2@wallet.com"
 }
 ```
 
-If the same authenticated pubkey retries the same join with the same `idempotency_key`, return the already-joined escrow instead of `409`.
+The `refund_ln_address` becomes the counterparty's payout address on release.
 
-### 3. Return Joined Escrow State
+### Funding Instructions
 
-After Player 2 joins a `two_party` escrow, the `CreateResponse` should include the enrolled counterparty.
+Once both participants are registered (creator funder row seeded, counterparty funder row seeded at join), either participant can call `POST /funding_instructions` with `{ "escrow_id": "..." }` authenticated with their Nostr pubkey.
 
-Expected shape:
+### Fund Status
 
-```json
-{
-  "escrow_id": "...",
-  "state": "PENDING_FUNDING",
-  "creator_pubkey": "...",
-  "counterparty_pubkey": "...",
-  "amount_sats": 100,
-  "funding_model": "two_party",
-  "funding_threshold": 2,
-  "participant_count": 2,
-  "invitation_token": "..."
-}
+`POST /fund_status` checks Per-funder invoice status. When `funded_count >= funding_threshold` (2 for 2_of_2), the escrow becomes `active`.
+
+## Release
+
+Roll uses `application_signed_result` release decision. The application signer (Rollpot's ephemeral key) computes two dice rolls, determines the winner, and signs:
+
+```
+pontmore-escrow:v1:<escrow_id>:release:<winner>:<sha256(JSON.stringify(result))>:<nonce>:<timestamp>
 ```
 
-The client uses `counterparty_pubkey` to know the second player is enrolled.
+The signature is BIP-340 Schnorr (secp256k1) over `sha256(canonical_message)`.
 
-### 4. Allow Registered Funders To Request Invoices
+The escrow service releases the sum of funded contributions (2 × amount_sats for 2_of_2) to the winner's registered payout address. Platform fees are already excluded at invoice time.
 
-Once both `two_party` participants are registered, either participant should be able to call:
+## Service Discovery
 
-```json
-{
-  "escrow_id": "..."
-}
-```
+Rollpot discovers escrow services via the PIP-01 simplified descriptor. Required descriptor fields:
+- `version: 1`
+- `escrow_type`, `networks`, `reference_format`
+- `funding_rules` (with `funding_threshold`, `participant_count`, `required_confirmation`)
+- `dispute_rules` (with `policy`)
+- `service.schema.url` (standalone service only)
 
-on `POST /funding_instructions`, authenticated with their own Nostr pubkey.
-
-Expected behavior:
-
-- Creator receives the creator-side invoice.
-- Counterparty receives the counterparty-side invoice.
-- Repeated calls return the same invoice for that authenticated funder.
-
-### 5. Keep Pre-Join Funding Errors Explicit
-
-If funding is requested too early, return an actionable error instead of a generic internal error.
-
-Useful error examples:
-
-```json
-{ "error": "counterparty_required_before_funding" }
-```
-
-```json
-{ "error": "authenticated pubkey is not a registered funder for this escrow" }
-```
-
-The second error is already being returned in some cases and is useful.
-
-### 6. Avoid Generic 500s For Recoverable Escrow State
-
-Rollpot can recover from clear client-facing errors, but not from generic:
-
-```json
-{ "error": "internal server error" }
-```
-
-Prefer specific errors such as:
-
-```json
-{ "error": "invite_already_used" }
-{ "error": "not_registered_funder" }
-{ "error": "counterparty_required_before_funding" }
-{ "error": "escrow_not_joinable" }
-```
-
-## Observed Test Evidence
-
-During testing through the ngrok-proxied Rollpot client, the following patterns were observed.
-
-### Partial Join Failure
-
-```text
-POST /create with invitation_token -> 500 internal server error
-POST /create retry with same invitation_token -> 409 not in state "CREATED"
-```
-
-This indicates the first request may have changed escrow state but did not return a successful response.
-
-### Premature Funding Request
-
-```text
-POST /create funding_model=two_party -> 200 CREATED
-POST /funding_instructions as creator -> 400 authenticated pubkey is not a registered funder for this escrow
-```
-
-The client has been updated to avoid requesting funding until the counterparty has joined, but the backend should still return a clear protocol error for early calls.
-
-## Summary
-
-The highest-priority backend fix is making invited counterparty join atomic and idempotent. Without that, Player 2 can be partially enrolled by the backend, receive a `500`, and then be unable to recover because retries return `409`.
+The service endpoint and capabilities are derived from the referenced OpenAPI schema, not from the descriptor itself.

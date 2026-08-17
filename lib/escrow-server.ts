@@ -22,14 +22,9 @@ export async function discoverEscrowService(descriptorUrl: string): Promise<Escr
 
 export async function validateEscrowService(descriptor: unknown, source: EscrowDescriptorSource): Promise<EscrowService> {
   const validatedDescriptor = validateEscrowDescriptor(descriptor);
-
-  assertStandaloneService(validatedDescriptor);
-  const service = validatedDescriptor.service!;
-  const endpoint = await validatePublicHttpsUrl(service.endpoint!, "Service endpoint");
-  const schemaUrl = await validatePublicHttpsUrl(service.schema_url!, "Schema URL");
-  assertVersionedSchemaUrl(schemaUrl);
+  const schemaUrl = await assertStandaloneService(validatedDescriptor);
   const schema = await fetchJson(schemaUrl, SCHEMA_LIMIT, "schema");
-  const { operationUrls, enrollment } = validateOpenApiSchema(schema, endpoint);
+  const { operationUrls, enrollment, fundingModels, releaseDecisions, endpoint } = validateOpenApiSchema(schema);
 
   return {
     source,
@@ -39,6 +34,8 @@ export async function validateEscrowService(descriptor: unknown, source: EscrowD
     schema_url: schemaUrl,
     operation_urls: operationUrls,
     enrollment,
+    funding_models: fundingModels,
+    release_decisions: releaseDecisions,
   };
 }
 
@@ -110,51 +107,45 @@ function assertDescriptor(value: unknown): asserts value is EscrowDescriptor {
   requireString(value, "reference_format", "Descriptor");
   if (typeof value.updated_at !== "number") throw new Error("Descriptor updated_at is required.");
   if (!isStringArray(value.networks) || value.networks.length === 0) throw new Error("Descriptor networks must be non-empty.");
-  if (!isRecord(value.funding_rules) || !isRecord(value.release_rules) || !isRecord(value.dispute_rules)) {
-    throw new Error("Descriptor funding, release, and dispute rules are required.");
+  if (!isRecord(value.funding_rules) || !isRecord(value.dispute_rules)) {
+    throw new Error("Descriptor funding and dispute rules are required.");
   }
+  if (!isStringArray(value.networks) || value.networks.length === 0) throw new Error("Descriptor networks must be non-empty.");
 }
 
-function assertStandaloneService(value: EscrowDescriptor): asserts value is EscrowDescriptor & { service: NonNullable<EscrowDescriptor["service"]> } {
-  if (!isRecord(value.service)) throw new Error("Descriptor is discovery-only and cannot be used standalone.");
-  const service = value.service;
-  if (!isStringArray(service.transport) || service.transport[0] !== "https") {
-    throw new Error("Rollpot requires HTTPS as the canonical service transport.");
+async function assertStandaloneService(value: EscrowDescriptor): Promise<string> {
+  if (!isRecord(value.service) || !isRecord(value.service.schema)) {
+    throw new Error("Descriptor is discovery-only and cannot be used standalone.");
   }
-  if (service.interface !== "pontmore_escrow_http_v1") {
-    throw new Error(`Unsupported escrow interface: ${String(service.interface || "missing")}.`);
+  const schema = value.service.schema;
+  if (schema.type && schema.type !== "openapi") {
+    throw new Error(`Unsupported service schema type: ${String(schema.type)}.`);
   }
-  requireString(service, "endpoint", "Service");
-  requireString(service, "schema_url", "Service");
-  if (!isStringArray(service.auth) || !service.auth.includes("nostr_http_auth")) {
-    throw new Error("Rollpot requires nostr_http_auth.");
-  }
-  if (!isStringArray(service.operations) || REQUIRED_OPERATIONS.some((operation) => !service.operations!.includes(operation))) {
-    throw new Error("Service does not advertise every required standalone escrow operation.");
-  }
-  if (!isStringArray(service.funding_model) || !service.funding_model.includes("two_party")) {
-    throw new Error("Rollpot requires the two_party funding model.");
-  }
-  if (!isStringArray(service.release_decisions) || !service.release_decisions.includes("application_signed_result")) {
-    throw new Error("Rollpot requires application_signed_result releases.");
-  }
-  if (service.operations.includes("split") && !service.release_decisions.includes("split_decision")) {
-    throw new Error("A service advertising split must also advertise split_decision.");
-  }
+  requireString(schema, "url", "Service schema");
+  const schemaUrl = await validatePublicHttpsUrl(schema.url, "Schema URL");
+  assertVersionedSchemaUrl(schemaUrl);
+  return schemaUrl;
 }
 
-function validateOpenApiSchema(value: unknown, endpoint: string): {
+function validateOpenApiSchema(value: unknown): {
   operationUrls: EscrowService["operation_urls"];
   enrollment: EscrowService["enrollment"];
+  fundingModels: string[];
+  releaseDecisions: string[];
+  endpoint: string;
 } {
   if (!isRecord(value) || typeof value.openapi !== "string" || !isRecord(value.paths)) {
     throw new Error("Schema must be an OpenAPI JSON document.");
   }
 
-  const serverMatches = Array.isArray(value.servers) && value.servers.some((server) => {
-    return isRecord(server) && normalizeUrlString(server.url) === endpoint;
-  });
-  if (!serverMatches) throw new Error("Schema does not bind its server URL to the descriptor endpoint.");
+  const serverUrl = Array.isArray(value.servers) && isRecord(value.servers[0]) ? value.servers[0].url : "";
+  if (typeof serverUrl !== "string" || !serverUrl.trim()) {
+    throw new Error("Schema does not define an HTTPS server URL.");
+  }
+  const endpoint = normalizeUrlString(serverUrl);
+  if (!endpoint || !endpoint.startsWith("https://")) {
+    throw new Error("Schema server URL must be a public HTTPS URL.");
+  }
 
   for (const extension of [
     "x-pontmore-state-machine",
@@ -165,6 +156,19 @@ function validateOpenApiSchema(value: unknown, endpoint: string): {
     "x-pontmore-schema-fetch",
   ]) {
     if (!isRecord(value[extension])) throw new Error(`Schema is missing ${extension}.`);
+  }
+
+  const fundingModelSpec = value["x-pontmore-funding-model"] as Record<string, any>;
+  const modelMap = isRecord(fundingModelSpec.models) ? fundingModelSpec.models : fundingModelSpec;
+  const fundingModels = Object.keys(modelMap).filter((key) => key !== "description");
+  if (!fundingModels.includes("2_of_2")) {
+    throw new Error("Rollpot requires the 2_of_2 funding model.");
+  }
+
+  const releaseDecisionSpec = value["x-pontmore-release-decisions"] as Record<string, any>;
+  const releaseDecisions = isRecord(releaseDecisionSpec.formats) ? Object.keys(releaseDecisionSpec.formats) : [];
+  if (!releaseDecisions.includes("application_signed_result")) {
+    throw new Error("Rollpot requires application_signed_result releases.");
   }
 
   const schemas = isRecord(value.components) && isRecord(value.components.schemas) ? value.components.schemas : null;
@@ -188,7 +192,7 @@ function validateOpenApiSchema(value: unknown, endpoint: string): {
     operationUrls[operation] = new URL(operationPath, endpointUrl.origin).toString();
   }
 
-  return { operationUrls, enrollment };
+  return { operationUrls, enrollment, fundingModels, releaseDecisions, endpoint };
 }
 
 async function validatePublicHttpsUrl(value: string, label: string): Promise<string> {
