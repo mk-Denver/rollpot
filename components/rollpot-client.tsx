@@ -131,9 +131,8 @@ export function RollpotClient({ initialService }: { initialService?: EscrowServi
     }
   }, [playerProfile]);
 
-  const fundingModel = escrow?.funding_model || "two_party";
-  const trustedApplicationPubkeys = service?.descriptor.service?.decision_signers?.application_pubkeys;
-  const appSignerTrusted = !trustedApplicationPubkeys?.length || Boolean(appSigner && trustedApplicationPubkeys.includes(appSigner.pubkey));
+  const fundingModel = escrow?.funding_model || "2_of_2";
+  const appSignerTrusted = Boolean(appSigner);
   const canAuthenticate = Boolean(playerIdentity && playerProfile?.lightning_address && appSigner);
   const canCallService = Boolean(serviceSelected && service?.endpoint && canAuthenticate && appSignerTrusted && !escrow);
   const profileConfigured = Boolean(playerIdentity && playerProfile?.name.trim() && playerProfile.lightning_address.trim());
@@ -151,9 +150,14 @@ export function RollpotClient({ initialService }: { initialService?: EscrowServi
   );
   const creatorPaid = Boolean(creatorStatus?.funded || creatorStatus?.my_funded);
   const counterpartyPaid = Boolean(counterpartyStatus?.funded || counterpartyStatus?.my_funded);
-  const requiresCounterpartyBeforeFunding = fundingModel === "two_party" || fundingModel === "m_of_n";
+  const requiresCounterpartyBeforeFunding = true;
   const canRequestPayment = Boolean(escrow && (!requiresCounterpartyBeforeFunding || playerJoined));
-  const paymentsReady = fundingModel === "two_party" ? creatorPaid && counterpartyPaid : creatorPaid;
+  const paymentsReady = Boolean(
+    creatorStatus?.funded ||
+    counterpartyStatus?.funded ||
+    (creatorStatus?.funded_count ?? 0) >= (creatorStatus?.funding_threshold ?? 2) ||
+    (counterpartyStatus?.funded_count ?? 0) >= (counterpartyStatus?.funding_threshold ?? 2),
+  );
   const myFunding = localRole === "creator" ? creatorFunding : counterpartyFunding;
   const myStatus = localRole === "creator" ? creatorStatus : counterpartyStatus;
   const inviteCode = useMemo(() => {
@@ -234,7 +238,7 @@ export function RollpotClient({ initialService }: { initialService?: EscrowServi
         description: "Rollpot wager",
         refund_ln_address: playerProfile.lightning_address,
         ...(requiresCounterpartyPubkey ? { participant_pubkeys: [participantPubkey] } : {}),
-        funding_model: "two_party",
+        funding_model: "2_of_2",
         idempotency_key: crypto.randomUUID(),
       });
       const game = baseTrackedGame({
@@ -299,6 +303,7 @@ export function RollpotClient({ initialService }: { initialService?: EscrowServi
       const inviteService = await discoverService(invite.service_source);
       const joined = await callEscrow<CreateEscrowResponse>(playerIdentity, "create", {
         enrollment_token: invite.enrollment_token,
+        refund_ln_address: playerProfile.lightning_address,
       }, inviteService);
       const game = baseTrackedGame({
         escrow: joined,
@@ -670,7 +675,7 @@ export function RollpotClient({ initialService }: { initialService?: EscrowServi
                     </Typography>
                   </Stack>
                   <Typography variant="body2" color="text.secondary">
-                    {service.descriptor.escrow_type} · {service.descriptor.networks.join(", ")} · {service.descriptor.service?.interface}
+                    {service.descriptor.escrow_type} · {service.descriptor.networks.join(", ")} · {service.funding_models?.join(", ") || "escrow"}
                   </Typography>
                 </Box>
                 <Button size="small" variant="outlined" onClick={() => setCatalogExpanded(true)}>
@@ -754,7 +759,7 @@ export function RollpotClient({ initialService }: { initialService?: EscrowServi
                     onChange={(event) => setDescriptorInput(event.target.value)}
                     size="small"
                     fullWidth
-                    helperText={service ? `${service.descriptor.escrow_type} · ${service.descriptor.networks.join(", ")} · ${service.descriptor.service?.interface}` : "No escrow selected yet"}
+                    helperText={service ? `${service.descriptor.escrow_type} · ${service.descriptor.networks.join(", ")} · ${service.funding_models?.join(", ") || "escrow"}` : "No escrow selected yet"}
                   />
                   <Button disabled={discoveryBusy || !descriptorInput.trim()} variant="outlined" onClick={selectDescriptor} sx={{ minWidth: 120 }}>
                     Validate URL
@@ -937,7 +942,7 @@ export function RollpotClient({ initialService }: { initialService?: EscrowServi
                             Current game
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
-                            {escrow ? `${escrow.amount_sats * (fundingModel === "two_party" ? 2 : 1)} sats pot` : "No active game"}
+                            {escrow ? `${escrow.amount_sats * 2} sats pot` : "No active game"}
                           </Typography>
                         </Box>
                         {escrow ? <Chip label={releaseResponse ? "settled" : paymentsReady ? "ready to roll" : "funding"} color={releaseResponse || paymentsReady ? "success" : "default"} /> : null}
@@ -1009,8 +1014,6 @@ function EscrowDetailDialog({
   const candidate = entry.service;
   const descriptor = entry.descriptor || candidate?.descriptor;
   const service = descriptor?.service;
-  const signers = service?.decision_signers;
-  const signerTrusted = candidate ? isApplicationSignerTrusted(candidate, appSigner?.pubkey) : false;
   const selectable = canSelect(entry);
 
   return (
@@ -1032,45 +1035,26 @@ function EscrowDetailDialog({
               <DetailRow label="Networks" value={descriptor.networks?.join(", ") || "—"} />
               <DetailRow label="Reference format" value={descriptor.reference_format || "—"} />
               <DetailRow label="Updated at" value={descriptor.updated_at ? new Date(descriptor.updated_at * 1000).toLocaleString() : "—"} />
+              <DetailRow label="Funding threshold" value={descriptor.funding_rules?.funding_threshold != null ? String(descriptor.funding_rules.funding_threshold) : "—"} />
+              <DetailRow label="Participants" value={descriptor.funding_rules?.participant_count != null ? String(descriptor.funding_rules.participant_count) : "—"} />
               <DetailRow label="Funding confirmation" value={descriptor.funding_rules?.required_confirmation || "—"} />
-              <DetailRow label="Release trigger" value={descriptor.release_rules?.release_trigger || "—"} />
-              <DetailRow label="Refund trigger" value={descriptor.release_rules?.refund_trigger || "—"} />
+              <DetailRow label="Funding timeout" value={descriptor.funding_rules?.funding_timeout || "—"} />
               <DetailRow label="Dispute policy" value={descriptor.dispute_rules?.policy || "—"} />
             </>
           ) : null}
 
-          {service ? (
+          {candidate ? (
             <>
               <Typography variant="subtitle2" sx={{ fontWeight: 900, mt: 1 }}>Service</Typography>
-              <DetailRow label="Transport" value={service.transport?.join(", ") || "—"} />
-              <DetailRow label="Interface" value={service.interface || "—"} />
-              <DetailRow label="Endpoint" value={service.endpoint || "—"} mono />
-              <DetailRow label="Schema URL" value={service.schema_url || "—"} mono />
-              <DetailRow label="Auth" value={service.auth?.join(", ") || "—"} />
-              <DetailRow label="Operations" value={service.operations?.join(", ") || "—"} />
-              <DetailRow label="Funding models" value={service.funding_model?.join(", ") || "—"} />
-              <DetailRow label="Release decisions" value={service.release_decisions?.join(", ") || "—"} />
-              <DetailRow label="Enrollment" value={candidate?.enrollment || "—"} />
+              <DetailRow label="Endpoint" value={candidate.endpoint || "—"} mono />
+              <DetailRow label="Schema URL" value={candidate.schema_url || "—"} mono />
+              <DetailRow label="Funding models" value={candidate.funding_models?.join(", ") || "—"} />
+              <DetailRow label="Release decisions" value={candidate.release_decisions?.join(", ") || "—"} />
+              <DetailRow label="Enrollment" value={candidate.enrollment || "—"} />
             </>
           ) : null}
 
-          {signers ? (
-            <>
-              <Typography variant="subtitle2" sx={{ fontWeight: 900, mt: 1 }}>Decision signers</Typography>
-              {signers.operator_pubkey ? <DetailRow label="Operator pubkey" value={signers.operator_pubkey} mono /> : null}
-              {signers.application_pubkeys?.length ? (
-                <DetailRow
-                  label="Application pubkeys"
-                  value={signers.application_pubkeys.map((pk) => `${shortKey(pk)}${pk === appSigner?.pubkey ? " (your signer)" : ""}`).join(", ")}
-                  mono
-                />
-              ) : null}
-              {signers.oracle_pubkeys?.length ? <DetailRow label="Oracle pubkeys" value={signers.oracle_pubkeys.map(shortKey).join(", ")} mono /> : null}
-              <Typography variant="caption" color={signerTrusted ? "success.main" : "warning.main"}>
-                {signerTrusted ? "This service trusts your application signer." : "This service does not trust your application signer."}
-              </Typography>
-            </>
-          ) : null}
+          {service?.schema?.url ? <DetailRow label="Descriptor schema" value={service.schema.url} mono /> : null}
 
           {entry.source.type === "url" ? <DetailRow label="Descriptor source" value={entry.source.url} mono /> : <DetailRow label="Descriptor source" value={`Nostr event ${shortKey(entry.source.event.id)}`} mono />}
 
@@ -1217,10 +1201,13 @@ function isGameExpired(game: TrackedDiceGame) {
   if (game.release) return false;
 
   const counterpartyJoined = Boolean(game.counterparty_player || game.escrow.counterparty_pubkey);
-  const creatorFunded = Boolean(game.creator_status?.funded || game.creator_status?.my_funded);
-  const counterpartyFunded = Boolean(game.counterparty_status?.funded || game.counterparty_status?.my_funded);
+  const escrowFunded =
+    game.creator_status?.funded ||
+    game.counterparty_status?.funded ||
+    (game.creator_status?.funded_count ?? 0) >= (game.creator_status?.funding_threshold ?? 2) ||
+    (game.counterparty_status?.funded_count ?? 0) >= (game.counterparty_status?.funding_threshold ?? 2);
 
-  if (counterpartyJoined && creatorFunded && counterpartyFunded) return false;
+  if (counterpartyJoined && escrowFunded) return false;
 
   if (!counterpartyJoined) return true;
 
@@ -1280,9 +1267,8 @@ function getGameId(serviceId: string, escrowId: string) {
   return `${serviceId}#${escrowId}`;
 }
 
-function isApplicationSignerTrusted(service: EscrowService, pubkey?: string) {
-  const trustedPubkeys = service.descriptor.service?.decision_signers?.application_pubkeys;
-  return !trustedPubkeys?.length || Boolean(pubkey && trustedPubkeys.includes(pubkey));
+function isApplicationSignerTrusted(_service: EscrowService, pubkey?: string) {
+  return Boolean(pubkey);
 }
 
 function shortKey(pubkey: string) {
@@ -1325,10 +1311,13 @@ function assertPlayableProfile(profile: PlayerProfile) {
 }
 
 function gameStatusLabel(game: TrackedDiceGame) {
-  const creatorPaid = Boolean(game.creator_status?.funded || game.creator_status?.my_funded);
-  const counterpartyPaid = Boolean(game.counterparty_status?.funded || game.counterparty_status?.my_funded);
+  const funded =
+    game.creator_status?.funded ||
+    game.counterparty_status?.funded ||
+    (game.creator_status?.funded_count ?? 0) >= (game.creator_status?.funding_threshold ?? 2) ||
+    (game.counterparty_status?.funded_count ?? 0) >= (game.counterparty_status?.funding_threshold ?? 2);
 
-  if (creatorPaid && counterpartyPaid) return "Ready to roll";
+  if (funded) return "Ready to roll";
   if (game.counterparty_player || game.escrow.counterparty_pubkey) return "Funding";
   return "Waiting for player 2";
 }

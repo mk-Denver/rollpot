@@ -127,21 +127,18 @@ export function buildApplicationReleaseDecision({
     throw new Error("Rollpot application signer is unavailable.");
   }
 
-  const resultHash = hashJson(result);
+  const resultPayload = { ...result };
+  const resultHash = bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(resultPayload))));
   const canonicalMessage = `pontmore-escrow:v1:${escrowId}:release:${result.winner}:${resultHash}:${nonce}:${timestamp}`;
-  const signature = bytesToHex(schnorr.sign(sha256(new TextEncoder().encode(canonicalMessage)), appSigner.secretKey));
+  const msgHash = sha256(new TextEncoder().encode(canonicalMessage));
+  const signature = bytesToHex(schnorr.sign(msgHash, appSigner.secretKey));
 
   return {
     release_decision: "application_signed_result",
     recipient: result.winner,
     nonce,
     timestamp,
-    result: {
-      ...result,
-      result_hash: resultHash,
-      canonical_message: canonicalMessage,
-      signer_role: "dice_application",
-    },
+    result: resultPayload,
     signatures: [
       {
         pubkey: appSigner.pubkey,
@@ -159,26 +156,6 @@ export function rollDie(avoidTieWith?: number): number {
   }
 
   return roll;
-}
-
-function hashJson(value: unknown) {
-  return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(sortJson(value)))));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sortJson);
-  }
-
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entryValue]) => [key, sortJson(entryValue)]),
-    );
-  }
-
-  return value;
 }
 
 function readSavedProfile(): PlayerProfile | null {

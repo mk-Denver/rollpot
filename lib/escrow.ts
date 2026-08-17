@@ -11,33 +11,21 @@ export type EscrowDescriptor = {
   escrow_type: string;
   networks: string[];
   funding_rules: {
+    funding_threshold: number;
+    participant_count: number;
     required_confirmation: string;
-  };
-  release_rules: {
-    release_trigger: string;
-    refund_trigger: string;
+    funding_timeout?: string;
   };
   dispute_rules: {
     policy: string;
+    timeout_fallback?: string;
   };
   reference_format: string;
   updated_at: number;
   service?: {
-    transport?: string[];
-    interface?: string;
-    endpoint?: string;
-    schema_url?: string;
-    auth?: string[];
-    operations?: string[];
-    funding_model?: string[];
-    funding_threshold?: number;
-    participant_count?: number;
-    release_decisions?: string[];
-    default_funding_model?: string;
-    decision_signers?: {
-      operator_pubkey?: string;
-      application_pubkeys?: string[];
-      oracle_pubkeys?: string[];
+    schema?: {
+      type?: string;
+      url?: string;
     };
   };
 };
@@ -50,6 +38,8 @@ export type EscrowService = {
   schema_url: string;
   operation_urls: Record<(typeof REQUIRED_OPERATIONS)[number], string>;
   enrollment: "open_token" | "predeclared_pubkey";
+  funding_models: string[];
+  release_decisions: string[];
 };
 
 export type EscrowIdentity = {
