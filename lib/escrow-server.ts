@@ -254,8 +254,8 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
-function requireString(value: Record<string, any>, field: string, label: string) {
-  if (typeof value[field] !== "string" || !value[field].trim()) throw new Error(`${label} ${field} is required.`);
+function requireString<T extends Record<string, any>>(value: T, field: keyof T, label: string): asserts value is T & Record<typeof field, string> {
+  if (typeof value[field] !== "string" || !value[field].trim()) throw new Error(`${label} ${String(field)} is required.`);
 }
 
 function capitalize(value: string) {

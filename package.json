@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "npm run build && npm run bundle:standalone && npm run start:standalone",
-    "dev:next": "next dev -p 3002",
-    "build": "next build",
+    "dev:next": "next dev --webpack -p 3002",
+    "build": "next build --webpack",
     "bundle:standalone": "mkdir -p .next/standalone/.next && cp -R .next/static .next/standalone/.next/ && if [ -d public ]; then cp -R public .next/standalone/; fi",
     "start:standalone": "PORT=3002 HOSTNAME=0.0.0.0 node .next/standalone/server.js",
     "typecheck": "tsc --noEmit"
