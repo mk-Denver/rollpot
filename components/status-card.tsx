@@ -2,17 +2,16 @@
 
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import { Alert, Box, Button, Chip, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Stack, Tooltip, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import type { FundStatusResponse, FundingInstructionsResponse } from "../lib/escrow";
+import { isOwnPaymentConfirmed, type FundStatusResponse, type FundingInstructionsResponse } from "../lib/escrow";
 
 export function FundingStatusCard({
   title,
   disabled,
   instructions,
   status,
-  waitingForPlayers = false,
   onInstructions,
   onStatus,
 }: {
@@ -20,11 +19,11 @@ export function FundingStatusCard({
   disabled: boolean;
   instructions: FundingInstructionsResponse | null;
   status: FundStatusResponse | null;
-  waitingForPlayers?: boolean;
   onInstructions: () => void;
   onStatus: () => void;
 }) {
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const paid = isOwnPaymentConfirmed(status);
 
   useEffect(() => {
     if (!instructions?.payment_request) {
@@ -34,12 +33,13 @@ export function FundingStatusCard({
 
     let cancelled = false;
 
-    QRCode.toDataURL(instructions.payment_request, {
-      width: 220,
-      margin: 1,
-      color: { dark: "#17251b", light: "#f8f2e8" },
-    }).then((url) => {
-      if (!cancelled) setQrDataUrl(url);
+    QRCode.toString(instructions.payment_request, {
+      type: "svg",
+      width: 360,
+      margin: 4,
+      color: { dark: "#000000", light: "#ffffff" },
+    }).then((svg) => {
+      if (!cancelled) setQrDataUrl(`data:image/svg+xml,${encodeURIComponent(svg)}`);
     }).catch(() => {
       // Silently skip QR generation on failure.
     });
@@ -48,59 +48,47 @@ export function FundingStatusCard({
   }, [instructions?.payment_request]);
 
   return (
-    <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, p: 2 }}>
-      <Stack spacing={2}>
+    <Box>
+      <Stack spacing={1.5}>
         <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
           {title}
         </Typography>
-        <Stack direction="row" spacing={1}>
-          <Button disabled={disabled} onClick={onInstructions} variant="outlined" size="small">
-            Payment request
-          </Button>
-          <Button disabled={disabled} onClick={onStatus} variant="outlined" size="small" startIcon={<RefreshIcon />}>
-            Check
-          </Button>
-        </Stack>
-        {instructions ? (
+        {!instructions && !paid ? <Button disabled={disabled} onClick={onInstructions} variant="contained" size="small" sx={{ alignSelf: "flex-start" }}>
+          Get invoice
+        </Button> : null}
+        {instructions && !paid ? (
           <Stack spacing={1.2}>
-            <KeyValue label="Amount" value={`${instructions.amount_sats} sats`} />
-            <KeyValue label="Invoice" value={instructions.payment_request} copy />
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ContentCopyIcon />}
-              onClick={() => navigator.clipboard.writeText(instructions.payment_request)}
-              sx={{ alignSelf: "flex-start", mt: 0.5 }}
-            >
-              Copy LN invoice
-            </Button>
             {qrDataUrl ? (
-              <Box sx={{ textAlign: "center", pt: 0.5 }}>
+              <Box sx={{ width: 360, maxWidth: "100%", mx: { xs: "auto", md: 0 }, p: 1.5, bgcolor: "#fff", border: "2px solid #d7e2d6", borderRadius: 2, boxShadow: "0 4px 20px rgba(0, 0, 0, 0.2)" }}>
                 <Box
                   component="img"
                   src={qrDataUrl}
                   alt="Lightning invoice QR code"
-                  sx={{ width: 200, height: 200, borderRadius: 1 }}
+                  sx={{ display: "block", width: "100%", height: "auto" }}
                 />
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-                  Scan with your Lightning wallet
-                </Typography>
               </Box>
             ) : null}
-          </Stack>
-        ) : (
-          <Alert severity="info">{waitingForPlayers ? "Invite Player 2 before requesting payment." : "Get your payment request after the game is ready."}</Alert>
-        )}
-        {status ? (
-          <Stack spacing={1.2}>
-            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
-              <Chip label={status.funded || status.my_funded ? "paid" : "waiting for payment"} color={status.funded || status.my_funded ? "success" : "default"} />
-              {status.funded_count != null ? (
-                <Chip label={`${status.funded_count}/${status.funding_threshold || status.total_funders || "?"} funded`} />
-              ) : null}
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<ContentCopyIcon />}
+                onClick={() => navigator.clipboard.writeText(instructions.payment_request)}
+              >
+                Copy invoice
+              </Button>
+              {!paid ? <Button disabled={disabled} onClick={onStatus} variant="text" size="small" startIcon={<RefreshIcon />}>
+                Check payment
+              </Button> : null}
             </Stack>
           </Stack>
         ) : null}
+        {status ? <Typography variant="body2" color={paid ? "success.main" : "text.secondary"} aria-live="polite">
+          {[
+            paid ? "Your payment received" : instructions ? "Waiting for your payment" : "",
+            status.funded_count != null ? `${status.funded_count} of ${status.funding_threshold || status.total_funders || "?"} payments received` : "",
+          ].filter(Boolean).join(" · ")}
+        </Typography> : null}
       </Stack>
     </Box>
   );

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { isIP } from "node:net";
-import { resolve4, resolve6 } from "node:dns/promises";
+import { lookup } from "node:dns/promises";
 import {
   REQUIRED_OPERATIONS,
   type EscrowDescriptorSource,
@@ -104,13 +104,14 @@ function assertDescriptor(value: unknown): asserts value is EscrowDescriptor {
   if (!isRecord(value)) throw new Error("Descriptor must be a JSON object.");
   if (value.version !== 1) throw new Error("Rollpot supports PIP-01 descriptor version 1 only.");
   requireString(value, "escrow_type", "Descriptor");
-  requireString(value, "reference_format", "Descriptor");
-  if (typeof value.updated_at !== "number") throw new Error("Descriptor updated_at is required.");
   if (!isStringArray(value.networks) || value.networks.length === 0) throw new Error("Descriptor networks must be non-empty.");
-  if (!isRecord(value.funding_rules) || !isRecord(value.dispute_rules)) {
-    throw new Error("Descriptor funding and dispute rules are required.");
+  if (value.expires_at !== undefined && (!Number.isSafeInteger(value.expires_at) || value.expires_at <= 0)) {
+    throw new Error("Descriptor expires_at must be a Unix timestamp.");
   }
-  if (!isStringArray(value.networks) || value.networks.length === 0) throw new Error("Descriptor networks must be non-empty.");
+  if (value.reference_format !== undefined && typeof value.reference_format !== "string") throw new Error("Invalid legacy reference format.");
+  if (value.updated_at !== undefined && !Number.isSafeInteger(value.updated_at)) throw new Error("Invalid legacy updated_at.");
+  if (value.funding_rules !== undefined && !isRecord(value.funding_rules)) throw new Error("Invalid legacy funding rules.");
+  if (value.dispute_rules !== undefined && !isRecord(value.dispute_rules)) throw new Error("Invalid legacy dispute rules.");
 }
 
 async function assertStandaloneService(value: EscrowDescriptor): Promise<string> {
@@ -207,9 +208,11 @@ async function validatePublicHttpsUrl(value: string, label: string): Promise<str
     throw new Error(`${label} must use a public host.`);
   }
 
+  // Node fetch uses the system resolver. Check that same set of addresses,
+  // avoiding a separate AAAA query that can stall for several seconds.
   const addresses = isIP(hostname)
     ? [hostname]
-    : [...await resolve4(hostname).catch(() => []), ...await resolve6(hostname).catch(() => [])];
+    : (await lookup(hostname, { all: true }).catch(() => [])).map(({ address }) => address);
   if (addresses.length === 0 || addresses.some(isDisallowedAddress)) {
     throw new Error(`${label} resolves to a disallowed network address.`);
   }
